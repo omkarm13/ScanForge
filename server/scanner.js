@@ -5,6 +5,8 @@ import { execFile } from "child_process";
 import IPCIDR from "ip-cidr";
 import { shodanLookup } from "./shodan.js";
 import dgram from "dgram";
+import http from "http";
+import https from "https";
 
 const resolve4 = promisify(dns.resolve4);
 const resolve6 = promisify(dns.resolve6);
@@ -229,24 +231,26 @@ const scanPort = (host, port, timeoutMs, bannerTimeoutMs, maxBytes, bannerSend) 
     const socket = new net.Socket();
     let data = Buffer.alloc(0);
     let done = false;
-    const finalize = (open) => {
+    let isOpen = false;
+    const finalize = () => {
       if (done) return;
       done = true;
       socket.destroy();
-      resolve({ open, banner: data.length ? data.toString("utf-8") : "" });
+      resolve({ open: isOpen, banner: data.length ? data.toString("utf-8") : "" });
     };
     socket.setTimeout(timeoutMs);
     socket.on("connect", () => {
+      isOpen = true;
       if (bannerSend) socket.write(bannerSend);
       socket.setTimeout(bannerTimeoutMs);
     });
     socket.on("data", (chunk) => {
       data = Buffer.concat([data, chunk]);
-      if (data.length >= maxBytes) finalize(true);
+      if (data.length >= maxBytes) finalize();
     });
-    socket.on("timeout", () => finalize(true));
-    socket.on("error", () => finalize(false));
-    socket.on("close", () => finalize(data.length > 0));
+    socket.on("timeout", () => finalize());
+    socket.on("error", () => finalize());
+    socket.on("close", () => finalize());
     socket.connect(port, host);
   });
 
@@ -255,15 +259,17 @@ const scanDnsTcp = (host, port, timeoutMs, bannerTimeoutMs) =>
     const socket = new net.Socket();
     let data = Buffer.alloc(0);
     let done = false;
-    const finalize = (open) => {
+    let isOpen = false;
+    const finalize = () => {
       if (done) return;
       done = true;
       socket.destroy();
       const text = data.length ? parseDnsTxt(data) : "";
-      resolve({ open, banner: text });
+      resolve({ open: isOpen, banner: text });
     };
     socket.setTimeout(timeoutMs);
     socket.on("connect", () => {
+      isOpen = true;
       const query = buildDnsVersionQuery();
       const len = Buffer.alloc(2);
       len.writeUInt16BE(query.length, 0);
@@ -274,13 +280,13 @@ const scanDnsTcp = (host, port, timeoutMs, bannerTimeoutMs) =>
       data = Buffer.concat([data, chunk]);
       if (data.length > 2) {
         const msg = data.slice(2);
-        finalize(true);
+        finalize();
         data = msg;
       }
     });
-    socket.on("timeout", () => finalize(true));
-    socket.on("error", () => finalize(false));
-    socket.on("close", () => finalize(data.length > 0));
+    socket.on("timeout", () => finalize());
+    socket.on("error", () => finalize());
+    socket.on("close", () => finalize());
     socket.connect(port, host);
   });
 
@@ -330,8 +336,38 @@ const liveCheck = async (host, ports, timeoutMs) => {
   return tcpProbe(host, ports, timeoutMs);
 };
 
+const checkCors = (host, port, timeoutMs) => new Promise((resolve) => {
+  const isHttps = port === 443 || port === 8443;
+  const protocol = isHttps ? https : http;
+  const req = protocol.request({
+    hostname: host,
+    port: port,
+    path: '/',
+    method: 'GET',
+    timeout: timeoutMs,
+    rejectUnauthorized: false,
+    headers: {
+      'Origin': 'https://evil.com'
+    }
+  }, (res) => {
+    const acao = res.headers['access-control-allow-origin'];
+    const acac = res.headers['access-control-allow-credentials'];
+    if (acao === '*' || acao === 'https://evil.com') {
+      resolve({ vulnerable: true, acao, acac });
+    } else {
+      resolve({ vulnerable: false });
+    }
+    res.resume();
+  });
+  
+  req.on('timeout', () => { req.destroy(); resolve({ vulnerable: false }); });
+  req.on('error', () => resolve({ vulnerable: false }));
+  req.end();
+});
+
 export const scanTargets = async (config) => {
-  const ports = parsePorts(config.ports || "80,443");
+  const portScanEnabled = config.portScanEnabled !== false;
+  const ports = portScanEnabled ? parsePorts(config.ports || "80,443") : [];
   const livePorts = parsePorts(config.livePorts || "22,80,443,53,445,3389");
   const targets = config.targets || [];
   const timeoutMs = Math.max(100, Number(config.timeout || 0.6) * 1000);
@@ -340,9 +376,10 @@ export const scanTargets = async (config) => {
   const bannerBytes = Number(config.bannerBytes || 1024);
   const bannerSend = decodeEscapes(config.bannerSend || "");
   const noLiveCheck = !!config.noLiveCheck;
-  const enableUdp = config.enableUdp !== false;
+  const enableUdp = portScanEnabled && config.enableUdp !== false;
   const udpPorts = parsePorts(config.udpPorts || "53");
   const dnsVersionProbe = config.dnsVersionProbe !== false;
+  const corsEnabled = !!config.corsEnabled;
 
   const liveTargets = [];
   if (!noLiveCheck) {
@@ -358,9 +395,11 @@ export const scanTargets = async (config) => {
 
   const scanResult = {};
   const banners = {};
+  const corsResult = {};
   for (const host of liveTargets) {
     scanResult[host] = [];
     banners[host] = {};
+    corsResult[host] = {};
     for (const port of ports) {
       // eslint-disable-next-line no-await-in-loop
       const probe = getTcpProbe(port, bannerSend);
@@ -370,6 +409,14 @@ export const scanTargets = async (config) => {
       if (open) {
         scanResult[host].push(port);
         if (banner) banners[host][port] = banner;
+        
+        if (corsEnabled && (HTTP_PROBE_PORTS.has(port) || port === 443 || port === 8443)) {
+          // eslint-disable-next-line no-await-in-loop
+          const corsData = await checkCors(host, port, bannerTimeoutMs);
+          if (corsData.vulnerable) {
+            corsResult[host][port] = corsData;
+          }
+        }
       }
     }
     if (enableUdp) {
@@ -394,6 +441,7 @@ export const scanTargets = async (config) => {
     scanResult,
     banners,
     shodanResult,
+    corsResult,
     stats: {
       targets: targets.length,
       liveTargets: liveTargets.length,

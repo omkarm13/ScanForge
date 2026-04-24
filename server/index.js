@@ -101,6 +101,7 @@ const runWorker = async () => {
         scanResult: result.scanResult,
         banners: result.banners,
         shodanResult: result.shodanResult,
+        corsResult: result.corsResult,
         stats: result.stats,
         status: "completed",
       }
@@ -127,13 +128,15 @@ app.get("/api/scans/:id/export", async (req, res) => {
   const format = (req.query.format || "json").toLowerCase();
   if (format === "csv") {
     const rows = [];
-    rows.push(["target", "port", "banner"].join(","));
+    rows.push(["target", "port", "banner", "cors_vulnerable"].join(","));
     for (const [host, ports] of Object.entries(scan.scanResult || {})) {
       const bannerMap = scan.banners?.[host] || {};
-      if (!ports.length) rows.push([host, "", ""].join(","));
+      const corsMap = scan.corsResult?.[host] || {};
+      if (!ports.length) rows.push([host, "", "", ""].join(","));
       for (const port of ports) {
         const banner = String(bannerMap[port] || "").replace(/\r?\n/g, " ").replace(/"/g, '""');
-        rows.push(`${host},${port},"${banner}"`);
+        const corsVuln = corsMap[port]?.vulnerable ? "true" : "false";
+        rows.push(`${host},${port},"${banner}",${corsVuln}`);
       }
     }
     res.setHeader("Content-Type", "text/csv");

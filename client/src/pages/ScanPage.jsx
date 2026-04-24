@@ -20,6 +20,8 @@ export default function ScanPage() {
   const [enableUdp, setEnableUdp] = useState(true);
   const [dnsVersionProbe, setDnsVersionProbe] = useState(true);
   const [shodanEnabled, setShodanEnabled] = useState(true);
+  const [corsEnabled, setCorsEnabled] = useState(true);
+  const [portScanEnabled, setPortScanEnabled] = useState(true);
   const [activeScan, setActiveScan] = useState(null);
   const [pollId, setPollId] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -49,6 +51,8 @@ export default function ScanPage() {
         udpPorts,
         dnsVersionProbe,
         shodanEnabled,
+        corsEnabled,
+        portScanEnabled,
       };
       const data = await runScan(payload);
       setActiveScan(data);
@@ -90,12 +94,20 @@ export default function ScanPage() {
       try {
         const lastId = localStorage.getItem("scanforge:lastScanId");
         if (lastId) {
-          const scan = await fetchScan(lastId);
-          setActiveScan(scan);
-          if (scan.status === "running" || scan.status === "queued") {
-            setPollId(lastId);
+          try {
+            const scan = await fetchScan(lastId);
+            setActiveScan(scan);
+            if (scan.status === "running" || scan.status === "queued") {
+              setPollId(lastId);
+            }
+            return;
+          } catch (err) {
+            if (err.message === "Not found") {
+              localStorage.removeItem("scanforge:lastScanId");
+            } else {
+              throw err;
+            }
           }
-          return;
         }
         const history = await fetchHistory();
         if (history.length) {
@@ -222,6 +234,14 @@ export default function ScanPage() {
               <label className="toggle">
                 <input
                   type="checkbox"
+                  checked={portScanEnabled}
+                  onChange={(event) => setPortScanEnabled(event.target.checked)}
+                />
+                <span>Port Scan</span>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
                   checked={useLiveCheck}
                   onChange={(event) => setUseLiveCheck(event.target.checked)}
                 />
@@ -234,6 +254,14 @@ export default function ScanPage() {
                   onChange={(event) => setShodanEnabled(event.target.checked)}
                 />
                 <span>Shodan CVE enrichment</span>
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={corsEnabled}
+                  onChange={(event) => setCorsEnabled(event.target.checked)}
+                />
+                <span>CORS Misconfiguration Check</span>
               </label>
             </div>
             {error ? <div className="error">{error}</div> : null}

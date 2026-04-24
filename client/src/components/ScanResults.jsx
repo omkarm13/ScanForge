@@ -42,6 +42,33 @@ export default function ScanResults({ scan, loading }) {
           <div key={host} className="host-card">
             <div className="host-title">{host}</div>
             <div className="host-ports">Ports: {portsList.join(", ") || "none"}</div>
+            {(() => {
+              const hasCorsData = scan.corsResult && scan.corsResult[host] && Object.keys(scan.corsResult[host]).length > 0;
+              const corsChecked = scan.input?.corsEnabled;
+              
+              if (hasCorsData) {
+                return (
+                  <div className="cors-alerts" style={{ marginTop: "8px", marginBottom: "8px" }}>
+                    {Object.entries(scan.corsResult[host]).map(([port, cors]) => (
+                      <div key={port} className="cors-alert">
+                        <span className="status-pill failed" style={{ background: "rgba(220, 38, 38, 0.2)", color: "#fca5a5" }}>CORS Misconfigured on {port}</span>
+                        <span className="muted" style={{ marginLeft: "8px", fontSize: "12px" }}>ACAO: {cors.acao || "not set"}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              } else if (corsChecked) {
+                return (
+                  <div className="cors-alerts" style={{ marginTop: "8px", marginBottom: "8px" }}>
+                    <div className="cors-alert">
+                      <span className="status-pill success" style={{ background: "rgba(34, 197, 94, 0.2)", color: "#86efac" }}>CORS Safe</span>
+                      <span className="muted" style={{ marginLeft: "8px", fontSize: "12px" }}>No misconfigurations detected</span>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
             <BannerBlock banners={scan.banners ? scan.banners[host] : null} />
           </div>
         ))}

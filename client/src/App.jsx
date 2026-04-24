@@ -3,6 +3,7 @@ import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 import HistoryPage from "./pages/HistoryPage.jsx";
 import QueuePage from "./pages/QueuePage.jsx";
 import ScanPage from "./pages/ScanPage.jsx";
+import MisconfigPage from "./pages/MisconfigPage.jsx";
 
 function AppLayout() {
   const navClass = ({ isActive }) => (isActive ? "active" : undefined);
@@ -24,6 +25,9 @@ function AppLayout() {
           <NavLink to="/history" className={navClass}>
             History
           </NavLink>
+          <NavLink to="/misconfig" className={navClass}>
+            Misconfig
+          </NavLink>
         </nav>
         <div className="topbar-actions">
           <span className="status-indicator">
@@ -37,6 +41,7 @@ function AppLayout() {
           <Route path="/" element={<ScanPage />} />
           <Route path="/queue" element={<QueuePage />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/misconfig" element={<MisconfigPage />} />
         </Routes>
       </main>
     </div>

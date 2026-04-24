@@ -7,6 +7,7 @@ const ScanSchema = new mongoose.Schema(
     scanResult: { type: Object, default: {} },
     banners: { type: Object, default: {} },
     shodanResult: { type: Object, default: {} },
+    corsResult: { type: Object, default: {} },
     stats: { type: Object, default: {} },
     status: { type: String, default: "queued" },
     jobId: { type: String },
